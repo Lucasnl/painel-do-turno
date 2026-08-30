@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src https://api.trello.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:">
+  <title>Painel do Turno</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="window">
+  <header id="drag">
+    <div>
+      <div class="title">🏠 Painel do Turno</div>
+      <div class="subtitle" id="shiftLabel">—</div>
+    </div>
+    <div class="window-buttons">
+      <button id="topBtn" title="Sempre no topo">📌</button>
+      <button id="minBtn" title="Minimizar">—</button>
+      <button id="closeBtn" title="Esconder na bandeja">×</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- ===== CONFIGURAÇÃO ===== -->
+    <section id="setup" class="hidden">
+      <h2>Configuração</h2>
+      <p class="hint">Key e Token da API do Trello. Ficam salvos somente neste PC.
+        <a href="#" id="linkKey">Onde pego a chave?</a></p>
+      <label>API Key</label>
+      <input id="key" placeholder="Sua API Key">
+      <label>Token</label>
+      <input id="token" placeholder="Seu Token">
+      <button class="primary" id="connect">Conectar</button>
+      <p id="loginMsg" class="error"></p>
+
+      <div id="boardSetup" class="hidden">
+        <label>Quadro de OPERAÇÃO (tarefas do dia)</label>
+        <select id="board"></select>
+        <button class="secondary" id="createBoard">+ Criar quadro "Operação" com as colunas</button>
+        <p class="hint">Precisa das listas <b>A FAZER</b>, <b>EM ANDAMENTO</b> e <b>CONCLUÍDO</b>.</p>
+
+        <label>Quadro do MANUAL (só leitura, botão 📖)</label>
+        <select id="manualBoard"><option value="">— nenhum —</option></select>
+
+        <label>Turnos (nome, hora início, hora fim)</label>
+        <div id="shifts"></div>
+
+        <label>Campos da passagem de turno (um por linha)</label>
+        <textarea id="passFields" rows="8"></textarea>
+        <p class="hint">Campo começando com "Extra" vira caixa de texto grande.</p>
+
+        <label>Checklist de início de turno (um item por linha)</label>
+        <textarea id="template" rows="10"></textarea>
+        <p class="hint">Item com "(Não é preciso no turno da madrugada)" é pulado nesse turno.</p>
+
+        <label class="check"><input type="checkbox" id="autostart"> Iniciar com o Windows</label>
+
+        <button class="primary" id="saveSetup">Salvar e abrir painel</button>
+        <button class="secondary" id="quitApp" style="border-color:#de350b;color:#de350b">✖ Fechar o aplicativo de vez</button>
+      </div>
+    </section>
+
+    <!-- ===== PAINEL ===== -->
+    <section id="app" class="hidden">
+      <div class="who">
+        <span>👤 Quem está no turno:</span>
+        <select id="who"><option value="">— escolher —</option></select>
+      </div>
+
+      <div class="progress"><div id="bar"></div></div>
+      <div class="summary">
+        <div><b id="doneCount">0/0</b><span>checklist</span></div>
+        <div><b id="pending">0</b><span>pendências</span></div>
+        <div class="red"><b id="overdue">0</b><span>atrasadas</span></div>
+      </div>
+
+      <h3>🔁 Passagem de turno <button id="passBtn" class="mini">✍ escrever</button></h3>
+      <div id="lastPass"></div>
+      <div id="passBox" class="hidden"></div>
+
+      <h3>☑ Checklist do turno</h3>
+      <div id="checklist"></div>
+
+      <h3>🚨 Pendências <button id="addBtn" class="mini">+ nova</button></h3>
+      <div id="addBox" class="hidden">
+        <input id="newName" placeholder="Ex.: Galões vazios — solicitar troca">
+        <div class="row">
+          <select id="newWho"><option value="">Responsável</option></select>
+          <input id="newDue" type="datetime-local">
+          <button class="mini primary" id="newSave">Criar</button>
+        </div>
+      </div>
+      <div id="cards"></div>
+
+      <div class="toolbar">
+        <button id="manualBtn" title="Abrir manual">📖 Manual</button>
+        <button id="reportBtn" title="Relatório">📊</button>
+        <button id="openBoard" title="Abrir quadro no Trello">🔗</button>
+        <button id="refresh" title="Atualizar">↻</button>
+        <button id="settings" title="Configurações">⚙</button>
+      </div>
+      <div id="status" class="status"></div>
+    </section>
+  </main>
+</div>
+<script src="renderer.js"></script>
+</body>
+</html>
