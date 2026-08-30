@@ -48,7 +48,10 @@ const cfg = {
   get manual() { return store.manual_board || ""; },
   get template() { return store.template || DEFAULT_TEMPLATE; },
   get shifts() { return Array.isArray(store.shifts) && store.shifts.length ? store.shifts : DEFAULT_SHIFTS; },
-  get passFields() { return (store.passagem_fields || DEFAULT_PASSAGEM).split("\n").map(s => s.trim()).filter(Boolean); },
+  get passFields() {
+    const f = (store.passagem_fields || "").split("\n").map(s => s.trim()).filter(Boolean);
+    return f.length ? f : DEFAULT_PASSAGEM.split("\n"); // lista vazia/apagada → volta pro padrão
+  },
   set(k, v) { store[k] = v; window.desktop.setConfig({ [k]: v }); }
 };
 async function loadConfig() {
@@ -68,7 +71,7 @@ async function loadConfig() {
 const state = {
   boards: [], lists: {}, members: [], cards: [],
   shiftCard: null, checkItems: [], boardUrl: "", manualUrl: "",
-  lastPass: null,
+  lastPass: null, passBoxFields: [], editingPass: null, editingHeader: "",
   notified: new Set()
 };
 
@@ -188,6 +191,7 @@ async function saveSetup() {
   cfg.set("manual_board", $("manualBoard").value);
   cfg.set("template", $("template").value);
   cfg.set("passagem_fields", $("passFields").value);
+  $("passBox").classList.add("hidden"); $("passBox").innerHTML = ""; // remonta com os campos novos
   const sh = readShiftsEditor();
   if (!sh.length) { $("loginMsg").textContent = "Adicione pelo menos um turno."; return; }
   cfg.set("shifts", sh);
@@ -379,7 +383,11 @@ async function createPending() {
 
 // ---------- passagem de turno ----------
 function buildPassBox() {
-  $("passBox").innerHTML = cfg.passFields.map((f, i) => {
+  // congela a lista de campos usada por ESTE formulário: mudar campos no ⚙
+  // com o formulário aberto não desalinha mais rótulo × valor
+  state.passBoxFields = cfg.passFields.slice();
+  state.editingPass = null; state.editingHeader = ""; // formulário novo = passagem nova
+  $("passBox").innerHTML = state.passBoxFields.map((f, i) => {
     const multi = /^extra/i.test(f);
     const ph = /caixa/i.test(f) ? "R$ 0,00" : multi ? "Observações livres..." : "";
     return `<label class="pass-label">${esc(f)}</label>` + (multi
@@ -394,29 +402,75 @@ function buildPassBox() {
   $("passCopy").onclick = () => savePassagem(true);
 }
 
-function passText() {
+function passText(header) {
   const shift = currentShift();
   const parts = [];
   $("passBox").querySelectorAll("[data-pf]").forEach(el => {
-    const f = cfg.passFields[+el.dataset.pf];
+    const f = state.passBoxFields[+el.dataset.pf];
     const v = el.value.trim();
-    if (!v) return;
+    if (!f || !v) return;
     parts.push(el.tagName === "TEXTAREA" ? `${f}:\n${v}` : `${f}: ${v}`);
   });
   if (!parts.length) return "";
-  return `📝 Passagem de turno: ${shift.name} - ${whoName()} - ${fmtDate(new Date())}\n\n${parts.join("\n\n")}`;
+  // pendências em aberto entram sempre, geradas na hora (snapshot do quadro)
+  const pend = state.cards.filter(c => c.id !== state.shiftCard?.id);
+  if (pend.length) {
+    const list = pend.map(c => {
+      const who = state.members.filter(m => c.idMembers?.includes(m.id)).map(m => m.fullName.split(" ")[0]).join(", ");
+      const due = c.due ? new Date(c.due).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
+      const od = c.due && !c.dueComplete && new Date(c.due) < new Date();
+      return `- ${c.name}${who ? ` (${who})` : ""}${due ? ` — até ${due}` : ""}${od ? " ⚠ ATRASADA" : ""}`;
+    }).join("\n");
+    parts.push(`🚨 Pendências em aberto:\n${list}`);
+  }
+  const h = header || `📝 Passagem de turno: ${shift.name} - ${whoName()} - ${fmtDate(new Date())}`;
+  return `${h}\n\n${parts.join("\n\n")}`;
+}
+
+// Texto salvo → campos do formulário (pra editar). Linha "Campo: valor" abre um
+// campo; linhas seguintes sem rótulo conhecido continuam no mesmo campo.
+function parsePass(text, fields) {
+  const lines = String(text).split("\n").slice(1); // pula o cabeçalho 📝
+  const map = {}; let cur = null;
+  for (const line of lines) {
+    if (/^🚨?\s*pend[êe]ncias em aberto:/i.test(line.trim())) break; // seção automática: regenerada ao salvar
+    const m = line.match(/^(.+?):\s*(.*)$/);
+    const f = m && fields.find(f => f.toLowerCase() === m[1].trim().toLowerCase());
+    if (f) { cur = f; map[f] = m[2] ? [m[2]] : []; }
+    else if (cur && line.trim() !== "") map[cur].push(line);
+  }
+  return map;
+}
+
+function startEditPass() {
+  const a = state.lastPass;
+  if (!a) return;
+  buildPassBox();
+  const map = parsePass(a.data.text, state.passBoxFields);
+  $("passBox").querySelectorAll("[data-pf]").forEach(el => {
+    const f = state.passBoxFields[+el.dataset.pf];
+    const v = map[f] || [];
+    el.value = el.tagName === "TEXTAREA" ? v.join("\n") : v.join(" ");
+  });
+  state.editingPass = a.id;
+  state.editingHeader = (a.data.text.split("\n")[0] || "").trim();
+  $("passBox").classList.remove("hidden");
+  $("passBox").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 async function savePassagem(copy) {
   if (!state.shiftCard) return;
-  const text = passText();
+  const editing = state.editingPass;
+  const text = passText(editing ? state.editingHeader : null);
   if (!text) { $("status").textContent = "Preencha pelo menos um campo da passagem."; return; }
   try {
-    await api(`/cards/${state.shiftCard.id}/actions/comments`, { text }, "POST");
+    if (editing) await api(`/actions/${editing}`, { text }, "PUT");
+    else await api(`/cards/${state.shiftCard.id}/actions/comments`, { text }, "POST");
+    state.editingPass = null; state.editingHeader = "";
     if (copy) { try { await navigator.clipboard.writeText(text); } catch {} }
     $("passBox").classList.add("hidden");
     $("passBox").innerHTML = "";
-    $("status").textContent = copy ? "Passagem salva ✓ e copiada — cole no WhatsApp (Ctrl+V)" : "Passagem salva no Trello ✓";
+    $("status").textContent = (editing ? "Passagem atualizada ✓" : "Passagem salva no Trello ✓") + (copy ? " e copiada — cole no WhatsApp" : "");
     await loadLastPass();
     renderLastPass();
   } catch { $("status").textContent = "Não foi possível salvar a passagem."; }
@@ -441,6 +495,7 @@ function renderLastPass() {
   el.innerHTML = `<details class="pass">
     <summary>📋 Última: ${esc(head)} · ${when}</summary>
     <pre>${esc(a.data.text)}</pre>
+    <button type="button" class="mini" id="passEditBtn">✏ editar esta passagem</button>
   </details>`;
 }
 
@@ -639,6 +694,7 @@ $("openBoard").onclick = () => state.boardUrl && window.desktop.openExternal(sta
 $("manualBtn").onclick = () => window.desktop.openExternal(state.manualUrl || "https://trello.com");
 $("who").onchange = e => setWho(e.target.value);
 $("addBtn").onclick = () => { $("addBox").classList.toggle("hidden"); $("newName").focus(); };
+$("lastPass").addEventListener("click", e => { if (e.target.id === "passEditBtn") startEditPass(); });
 $("passBtn").onclick = () => {
   const box = $("passBox");
   if (box.classList.contains("hidden") && !box.childElementCount) buildPassBox();
