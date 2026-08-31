@@ -72,6 +72,7 @@ const state = {
   boards: [], lists: {}, members: [], cards: [],
   shiftCard: null, checkItems: [], boardUrl: "", manualUrl: "",
   lastPass: null, passBoxFields: [], editingPass: null, editingHeader: "",
+  editingCard: null,
   notified: new Set()
 };
 
@@ -309,6 +310,20 @@ function render(shift) {
   $("cards").innerHTML = pend.length ? pend
     .sort((a, b) => (isOver(b) - isOver(a)) || (a.due ? new Date(a.due) : Infinity) - (b.due ? new Date(b.due) : Infinity))
     .map(c => {
+      if (c.id === state.editingCard) {
+        const whoOpts = state.members.map(m => `<option value="${m.id}" ${c.idMembers?.includes(m.id) ? "selected" : ""}>${esc(m.fullName)}</option>`).join("");
+        return `<article class="card doing">
+          <input class="edit-name" value="${esc(c.name)}">
+          <div class="row">
+            <select class="edit-who"><option value="">— sem responsável —</option>${whoOpts}</select>
+            <input class="edit-due" type="datetime-local" value="${c.due ? toLocalInput(c.due) : ""}">
+          </div>
+          <div class="card-actions">
+            <button class="ok" data-act="editSave" data-id="${c.id}">💾 Salvar</button>
+            <button data-act="editCancel" data-id="${c.id}">Cancelar</button>
+          </div>
+        </article>`;
+      }
       const od = isOver(c);
       const who = state.members.filter(m => c.idMembers?.includes(m.id)).map(m => m.fullName.split(" ")[0]).join(", ");
       const due = c.due ? new Date(c.due).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
@@ -319,6 +334,8 @@ function render(shift) {
         <div class="card-actions">
           ${!doing && state.lists.doing ? `<button data-act="doing" data-id="${c.id}">▶ Começar</button>` : ""}
           <button class="ok" data-act="done" data-id="${c.id}">✓ Concluir</button>
+          <button data-act="edit" data-id="${c.id}" title="Editar">✏</button>
+          <button data-act="del" data-id="${c.id}" title="Excluir">🗑</button>
           <button data-act="open" data-url="${esc(c.shortUrl)}">Abrir</button>
         </div>
       </article>`;
@@ -346,9 +363,35 @@ function whoName() {
 }
 const comment = (cardId, text) => api(`/cards/${cardId}/actions/comments`, { text }, "POST").catch(() => {});
 
+const toLocalInput = iso => {
+  const d = new Date(iso), p = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+
 async function cardAction(act, id, url) {
   if (act === "open") return window.desktop.openExternal(url);
+  if (act === "edit") { state.editingCard = id; return render(currentShift()); }
+  if (act === "editCancel") { state.editingCard = null; return render(currentShift()); }
   try {
+    if (act === "editSave") {
+      const name = $("cards").querySelector(".edit-name").value.trim();
+      const who = $("cards").querySelector(".edit-who").value;
+      const dueRaw = $("cards").querySelector(".edit-due").value;
+      const card = state.cards.find(c => c.id === id);
+      const params = { due: dueRaw ? new Date(dueRaw).toISOString() : "null" };
+      if (name) params.name = name;
+      if (who) params.idMembers = who;
+      await api(`/cards/${id}`, params, "PUT");
+      // tirar o responsável: a API só remove membro por endpoint próprio
+      if (!who) for (const m of card?.idMembers || []) await api(`/cards/${id}/idMembers/${m}`, {}, "DELETE").catch(() => {});
+      await comment(id, `✏ Editada por ${whoName()} (painel)`);
+      state.editingCard = null;
+    }
+    if (act === "del") {
+      if (!confirm("Excluir esta pendência? Ela vai pro arquivo do Trello (dá pra recuperar por lá).")) return;
+      await comment(id, `🗑 Excluída por ${whoName()} (painel)`);
+      await api(`/cards/${id}`, { closed: "true" }, "PUT");
+    }
     if (act === "done") {
       await api(`/cards/${id}`, { idList: state.lists.done, dueComplete: "true" }, "PUT");
       await comment(id, `✅ Concluída por ${whoName()} (painel)`);
@@ -580,6 +623,7 @@ async function openReport() {
       const acts = (byCard[c.id] || []).sort((a, b) => new Date(a.date) - new Date(b.date));
       const created = new Date(parseInt(c.id.slice(0, 8), 16) * 1000);
       const who = t => { const a = acts.find(a => a.type === "commentCard" && a.data.text?.includes(t)); const m = a && a.data.text.match(/por (.+?) \(painel\)/); return m ? m[1] : ""; };
+      if (who("Excluída por")) return null; // excluída pelo painel: fora do relatório
       const moveDone = acts.filter(a => a.type === "updateCard" && a.data.listAfter?.id === state.lists.done).pop();
       const isShift = /^Turno .+ — \d{2}\/\d{2}\/\d{4}$/.test(c.name);
       const items = (c.checklists || []).flatMap(cl => cl.checkItems);
@@ -596,7 +640,7 @@ async function openReport() {
         itemsTotal: items.length, itemsDone: items.filter(i => i.state === "complete").length,
         lastTick: ticks.length ? ticks[ticks.length - 1].date : ""
       };
-    });
+    }).filter(Boolean);
     window.desktop.openReport(reportHtml(rows));
     $("status").textContent = "Relatório aberto no navegador.";
   } catch (e) {
@@ -720,7 +764,11 @@ $("minBtn").onclick = () => window.desktop.minimize();
 $("closeBtn").onclick = () => window.desktop.hide();
 $("topBtn").onclick = async () => { const on = await window.desktop.toggleTop(); $("topBtn").textContent = on ? "📌" : "📍"; };
 
-setInterval(() => { if (!$("app").classList.contains("hidden")) refresh(); }, 60000);
+setInterval(() => {
+  if ($("app").classList.contains("hidden")) return;
+  if (state.editingCard) return; // não apagar o que a pessoa está digitando
+  refresh();
+}, 60000);
 
 // ---------- início ----------
 (async () => {
