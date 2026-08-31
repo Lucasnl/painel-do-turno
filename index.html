@@ -55,6 +55,8 @@
         <textarea id="passFields" rows="8"></textarea>
         <p class="hint">Campo começando com "Extra" vira caixa de texto grande.</p>
         <label class="check"><input type="checkbox" id="passPend"> Incluir pendências em aberto automaticamente no texto da passagem</label>
+        <label class="check"><input type="checkbox" id="showPend"> Mostrar seção de Pendências no painel</label>
+        <p class="hint">Desmarque se as pendências forem anotadas só na passagem de turno.</p>
 
         <label>Checklist de início de turno (um item por linha)</label>
         <textarea id="template" rows="10"></textarea>
@@ -77,8 +79,8 @@
       <div class="progress"><div id="bar"></div></div>
       <div class="summary">
         <div><b id="doneCount">0/0</b><span>checklist</span></div>
-        <div><b id="pending">0</b><span>pendências</span></div>
-        <div class="red"><b id="overdue">0</b><span>atrasadas</span></div>
+        <div id="sumPendBox"><b id="pending">0</b><span>pendências</span></div>
+        <div class="red" id="sumOverdueBox"><b id="overdue">0</b><span>atrasadas</span></div>
       </div>
 
       <h3>🔁 Passagem de turno <button id="passBtn" class="mini">✍ escrever</button> <button id="passEditTop" class="mini hidden">✏ editar última</button></h3>
@@ -88,16 +90,18 @@
       <h3>☑ Checklist do turno</h3>
       <div id="checklist"></div>
 
-      <h3>🚨 Pendências <button id="addBtn" class="mini">+ nova</button></h3>
-      <div id="addBox" class="hidden">
-        <input id="newName" placeholder="Ex.: Galões vazios — solicitar troca">
-        <div class="row">
-          <select id="newWho"><option value="">Responsável</option></select>
-          <input id="newDue" type="datetime-local">
-          <button class="mini primary" id="newSave">Criar</button>
+      <div id="pendSection">
+        <h3>🚨 Pendências <button id="addBtn" class="mini">+ nova</button></h3>
+        <div id="addBox" class="hidden">
+          <input id="newName" placeholder="Ex.: Galões vazios — solicitar troca">
+          <div class="row">
+            <select id="newWho"><option value="">Responsável</option></select>
+            <input id="newDue" type="datetime-local">
+            <button class="mini primary" id="newSave">Criar</button>
+          </div>
         </div>
+        <div id="cards"></div>
       </div>
-      <div id="cards"></div>
 
       <div class="toolbar">
         <button id="manualBtn" title="Abrir manual">📖 Manual</button>

@@ -50,6 +50,7 @@ const cfg = {
   get shifts() { return Array.isArray(store.shifts) && store.shifts.length ? store.shifts : DEFAULT_SHIFTS; },
   get passPend() { return store.passagem_pendencias !== false; }, // padrão: incluir
   get people() { return (store.people || "").split("\n").map(s => s.trim()).filter(Boolean); },
+  get showPend() { return store.show_pendencias !== false; }, // padrão: mostrar
   get passFields() {
     const f = (store.passagem_fields || "").split("\n").map(s => s.trim()).filter(Boolean);
     return f.length ? f : DEFAULT_PASSAGEM.split("\n"); // lista vazia/apagada → volta pro padrão
@@ -184,6 +185,7 @@ async function showSetup() {
   $("passFields").value = store.passagem_fields || DEFAULT_PASSAGEM;
   $("passPend").checked = cfg.passPend;
   $("people").value = store.people || "";
+  $("showPend").checked = cfg.showPend;
   renderShiftsEditor();
   $("autostart").checked = await window.desktop.getAutostart();
   if (cfg.key && cfg.token) await connect();
@@ -198,6 +200,7 @@ async function saveSetup() {
   cfg.set("passagem_fields", $("passFields").value);
   cfg.set("passagem_pendencias", $("passPend").checked);
   cfg.set("people", $("people").value);
+  cfg.set("show_pendencias", $("showPend").checked);
   $("passBox").classList.add("hidden"); $("passBox").innerHTML = ""; // remonta com os campos novos
   const sh = readShiftsEditor();
   if (!sh.length) { $("loginMsg").textContent = "Adicione pelo menos um turno."; return; }
@@ -308,6 +311,10 @@ function render(shift) {
       <input type="checkbox" data-id="${i.id}" ${i.state === "complete" ? "checked" : ""}>
       <span class="txt">${esc(i.name)}</span>
     </label>`).join("") : `<div class="empty">Sem checklist neste turno.</div>`;
+
+  $("pendSection").classList.toggle("hidden", !cfg.showPend);
+  $("sumPendBox").classList.toggle("hidden", !cfg.showPend);
+  $("sumOverdueBox").classList.toggle("hidden", !cfg.showPend);
 
   const pend = state.cards.filter(c => c.id !== state.shiftCard?.id);
   const isOver = c => c.due && !c.dueComplete && new Date(c.due).getTime() < now;
@@ -613,7 +620,7 @@ function maybeNagPassagem(shift) {
 // ---------- notificações ----------
 function checkNotifications(shift) {
   const now = Date.now();
-  const pend = state.cards.filter(c => c.id !== state.shiftCard?.id);
+  const pend = cfg.showPend ? state.cards.filter(c => c.id !== state.shiftCard?.id) : [];
   for (const c of pend) {
     if (c.due && !c.dueComplete && new Date(c.due).getTime() < now && !state.notified.has("od:" + c.id)) {
       state.notified.add("od:" + c.id);
