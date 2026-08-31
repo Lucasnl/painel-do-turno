@@ -537,6 +537,8 @@ function startEditPass() {
   });
   state.editingPass = a.id;
   state.editingHeader = (a.data.text.split("\n")[0] || "").trim();
+  $("passBox").insertAdjacentHTML("afterbegin",
+    `<div class="pass-editing">✏ Editando a última passagem — salvar substitui o texto anterior</div>`);
   $("passBox").classList.remove("hidden");
   $("passBox").scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -547,7 +549,7 @@ async function savePassagem(copy) {
   const text = passText(editing ? state.editingHeader : null);
   if (!text) { $("status").textContent = "Preencha pelo menos um campo da passagem."; return; }
   try {
-    if (editing) await api(`/actions/${editing}`, { text }, "PUT");
+    if (editing) await api(`/actions/${editing}/text`, { value: text }, "PUT");
     else await api(`/cards/${state.shiftCard.id}/actions/comments`, { text }, "POST");
     state.editingPass = null; state.editingHeader = "";
     if (copy) { try { await navigator.clipboard.writeText(text); } catch {} }
@@ -568,9 +570,11 @@ async function loadLastPass() {
 
 function renderLastPass() {
   const a = state.lastPass;
-  const key = a ? a.id : "";
+  $("passEditTop").classList.toggle("hidden", !a);
+  // chave inclui o tamanho do texto: edição re-renderiza, refresh normal não fecha o <details>
+  const key = a ? `${a.id}:${(a.data.text || "").length}` : "";
   const el = $("lastPass");
-  if (el.dataset.key === key) return; // não fecha o <details> aberto a cada refresh
+  if (el.dataset.key === key) return;
   el.dataset.key = key;
   if (!a) { el.innerHTML = `<div class="empty">Nenhuma passagem registrada ainda.</div>`; return; }
   const head = (a.data.text.split("\n")[0] || "").replace("📝 Passagem de turno: ", "");
@@ -779,6 +783,7 @@ $("manualBtn").onclick = () => window.desktop.openExternal(state.manualUrl || "h
 $("who").onchange = e => setWho(e.target.value);
 $("addBtn").onclick = () => { $("addBox").classList.toggle("hidden"); $("newName").focus(); };
 $("lastPass").addEventListener("click", e => { if (e.target.id === "passEditBtn") startEditPass(); });
+$("passEditTop").onclick = startEditPass;
 $("passBtn").onclick = () => {
   const box = $("passBox");
   if (box.classList.contains("hidden") && !box.childElementCount) buildPassBox();
