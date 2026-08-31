@@ -12,7 +12,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on("second-instance", () => showWindow());
 }
 
-let win, tray;
+let win, tray, pendingUpdate = false;
 const boundsFile = () => path.join(app.getPath("userData"), "bounds.json");
 const configFile = () => path.join(app.getPath("userData"), "config.json");
 
@@ -127,10 +127,12 @@ function setupAutoUpdate() {
   autoUpdater.autoDownload = true;
   autoUpdater.on("error", () => {}); // sem internet/GitHub fora: segue a vida
   autoUpdater.on("update-downloaded", () => {
+    pendingUpdate = true; // renderer mostra o botão "Atualizar agora"; instala só no clique
     if (Notification.isSupported())
-      new Notification({ title: "Painel do Turno", body: "Nova versão baixada — o painel vai reabrir sozinho." }).show();
-    setTimeout(() => { app.isQuitting = true; autoUpdater.quitAndInstall(true, true); }, 5000);
+      new Notification({ title: "Painel do Turno", body: "Nova atualização pronta — clique em Atualizar agora no painel." }).show();
+    win?.webContents.send("update-ready");
   });
+  ipcMain.handle("update:install", () => { app.isQuitting = true; autoUpdater.quitAndInstall(true, true); });
   const check = () => autoUpdater.checkForUpdates().catch(() => {});
   setTimeout(check, 15000);                 // 15 s depois de abrir
   setInterval(check, 4 * 60 * 60 * 1000);   // e a cada 4 h
@@ -171,7 +173,7 @@ ipcMain.handle("report:open", (_e, html) => {
 ipcMain.handle("app:info", () => {
   let releasedAt = "";
   try { releasedAt = require("./package.json").releasedAt || ""; } catch {}
-  return { version: app.getVersion(), releasedAt };
+  return { version: app.getVersion(), releasedAt, updateReady: pendingUpdate };
 });
 ipcMain.handle("autostart:get", () => app.getLoginItemSettings().openAtLogin);
 ipcMain.handle("autostart:set", (_e, on) => { app.setLoginItemSettings({ openAtLogin: !!on }); return !!on; });

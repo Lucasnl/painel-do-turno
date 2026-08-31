@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld("desktop", {
   setConfig: (patch) => ipcRenderer.invoke("config:set", patch),
   openReport: (html) => ipcRenderer.invoke("report:open", html),
   appInfo: () => ipcRenderer.invoke("app:info"),
+  installUpdate: () => ipcRenderer.invoke("update:install"),
+  onUpdateReady: (cb) => ipcRenderer.on("update-ready", () => cb()),
   getAutostart: () => ipcRenderer.invoke("autostart:get"),
   setAutostart: (on) => ipcRenderer.invoke("autostart:set", on)
 });

@@ -21,6 +21,8 @@
   </header>
 
   <main>
+    <button id="updateBtn" class="update-btn hidden">🔄 Nova atualização pronta — Atualizar agora</button>
+
     <!-- ===== CONFIGURAÇÃO ===== -->
     <section id="setup" class="hidden">
       <h2>Configuração</h2>
@@ -41,6 +43,10 @@
 
         <label>Quadro do MANUAL (só leitura, botão 📖)</label>
         <select id="manualBoard"><option value="">— nenhum —</option></select>
+
+        <label>Pessoas do turno (um nome por linha — voluntários não precisam ter Trello)</label>
+        <textarea id="people" rows="5" placeholder="Talita&#10;João voluntário&#10;Maria voluntária"></textarea>
+        <p class="hint">Quem é membro do quadro no Trello já aparece automático; aqui entram os extras.</p>
 
         <label>Turnos (nome, hora início, hora fim)</label>
         <div id="shifts"></div>

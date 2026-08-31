@@ -49,6 +49,7 @@ const cfg = {
   get template() { return store.template || DEFAULT_TEMPLATE; },
   get shifts() { return Array.isArray(store.shifts) && store.shifts.length ? store.shifts : DEFAULT_SHIFTS; },
   get passPend() { return store.passagem_pendencias !== false; }, // padrão: incluir
+  get people() { return (store.people || "").split("\n").map(s => s.trim()).filter(Boolean); },
   get passFields() {
     const f = (store.passagem_fields || "").split("\n").map(s => s.trim()).filter(Boolean);
     return f.length ? f : DEFAULT_PASSAGEM.split("\n"); // lista vazia/apagada → volta pro padrão
@@ -182,6 +183,7 @@ async function showSetup() {
   $("template").value = cfg.template;
   $("passFields").value = store.passagem_fields || DEFAULT_PASSAGEM;
   $("passPend").checked = cfg.passPend;
+  $("people").value = store.people || "";
   renderShiftsEditor();
   $("autostart").checked = await window.desktop.getAutostart();
   if (cfg.key && cfg.token) await connect();
@@ -195,6 +197,7 @@ async function saveSetup() {
   cfg.set("template", $("template").value);
   cfg.set("passagem_fields", $("passFields").value);
   cfg.set("passagem_pendencias", $("passPend").checked);
+  cfg.set("people", $("people").value);
   $("passBox").classList.add("hidden"); $("passBox").innerHTML = ""; // remonta com os campos novos
   const sh = readShiftsEditor();
   if (!sh.length) { $("loginMsg").textContent = "Adicione pelo menos um turno."; return; }
@@ -227,9 +230,8 @@ async function openPanel() {
       $("status").textContent = "O quadro precisa das listas A FAZER, EM ANDAMENTO e CONCLUÍDO.";
       return;
     }
-    const who = state.members.map(m => `<option value="${m.id}">${esc(m.fullName)}</option>`).join("");
-    $("who").innerHTML = `<option value="">— escolher —</option>` + who;
-    $("newWho").innerHTML = `<option value="">Responsável</option>` + who;
+    $("who").innerHTML = `<option value="">— escolher —</option>` + whoOptions();
+    $("newWho").innerHTML = `<option value="">Responsável</option>` + whoOptions();
     if (cfg.manual) {
       const mb = state.boards.find(b => b.id === cfg.manual);
       state.manualUrl = mb ? mb.url : (await api(`/boards/${cfg.manual}`, { fields: "url" })).url;
@@ -247,7 +249,7 @@ async function refresh() {
     const shift = currentShift();
     $("shiftLabel").textContent = `Turno ${shift.name} · ${String(shift.start).padStart(2, "0")}h–${String(shift.end).padStart(2, "0")}h`;
 
-    state.cards = await api(`/boards/${cfg.board}/cards`, { fields: "name,due,dueComplete,shortUrl,idList,idMembers,dateLastActivity" });
+    state.cards = await api(`/boards/${cfg.board}/cards`, { fields: "name,desc,due,dueComplete,shortUrl,idList,idMembers,dateLastActivity" });
     state.cards = state.cards.filter(c => c.idList !== state.lists.done);
 
     // cartão do turno: acha ou cria
@@ -259,14 +261,15 @@ async function refresh() {
     const cls = await api(`/cards/${card.id}/checklists`, { fields: "name", checkItem_fields: "name,state,pos" });
     state.checkItems = cls.flatMap(cl => cl.checkItems).sort((a, b) => a.pos - b.pos);
 
-    const assigned = card.idMembers?.[0] || "";
-    $("who").value = assigned;
+    const descName = (card.desc || "").match(/Responsável:\s*(.+)/);
+    $("who").value = card.idMembers?.[0] || (descName ? "p:" + descName[1].trim() : "");
 
     render(shift);
     checkNotifications(shift);
     await loadLastPass();
     renderLastPass();
     maybeNagPassagem(shift);
+    try { if ((await window.desktop.appInfo()).updateReady) $("updateBtn").classList.remove("hidden"); } catch {}
     $("status").textContent = `Atualizado às ${fmtTime(new Date())}`;
   } catch (e) {
     console.error(e);
@@ -278,8 +281,8 @@ async function createShiftCard(shift, name) {
   const who = store.last_who || "";
   const card = await api("/cards", {
     idList: state.lists.todo, name, pos: "top",
-    due: shift.endAt.toISOString(), idMembers: who,
-    desc: "Cartão criado automaticamente pelo Painel do Turno."
+    due: shift.endAt.toISOString(), idMembers: isMemberId(who) ? who : "",
+    desc: localName(who) ? `👤 Responsável: ${localName(who)}` : "Cartão criado automaticamente pelo Painel do Turno."
   }, "POST");
   const cl = await api("/checklists", { idCard: card.id, name: "Início do turno" }, "POST");
   for (const item of templateFor(shift)) await api(`/checklists/${cl.id}/checkItems`, { name: item }, "POST");
@@ -314,11 +317,12 @@ function render(shift) {
     .sort((a, b) => (isOver(b) - isOver(a)) || (a.due ? new Date(a.due) : Infinity) - (b.due ? new Date(b.due) : Infinity))
     .map(c => {
       if (c.id === state.editingCard) {
-        const whoOpts = state.members.map(m => `<option value="${m.id}" ${c.idMembers?.includes(m.id) ? "selected" : ""}>${esc(m.fullName)}</option>`).join("");
+        const dn = (c.desc || "").match(/Responsável:\s*(.+)/);
+        const sel = c.idMembers?.[0] || (dn ? "p:" + dn[1].trim() : "");
         return `<article class="card doing">
           <input class="edit-name" value="${esc(c.name)}">
           <div class="row">
-            <select class="edit-who"><option value="">— sem responsável —</option>${whoOpts}</select>
+            <select class="edit-who"><option value="">— sem responsável —</option>${whoOptions(sel)}</select>
             <input class="edit-due" type="datetime-local" value="${c.due ? toLocalInput(c.due) : ""}">
           </div>
           <div class="card-actions">
@@ -328,7 +332,7 @@ function render(shift) {
         </article>`;
       }
       const od = isOver(c);
-      const who = state.members.filter(m => c.idMembers?.includes(m.id)).map(m => m.fullName.split(" ")[0]).join(", ");
+      const who = cardWho(c);
       const due = c.due ? new Date(c.due).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
       const doing = c.idList === state.lists.doing;
       return `<article class="card ${od ? "overdue" : ""} ${doing ? "doing" : ""}">
@@ -360,8 +364,29 @@ async function toggleItem(id, checked) {
   } catch (e) { $("status").textContent = "Não foi possível marcar o item."; }
 }
 
+// Opções de pessoa: membros do Trello (value = id) + pessoas locais do ⚙ (value = "p:Nome")
+function whoOptions(selected = "") {
+  const mem = state.members.map(m => `<option value="${m.id}" ${m.id === selected ? "selected" : ""}>${esc(m.fullName)}</option>`);
+  const loc = cfg.people
+    .filter(p => !state.members.some(m => m.fullName.toLowerCase() === p.toLowerCase()))
+    .map(p => `<option value="p:${esc(p)}" ${"p:" + p === selected ? "selected" : ""}>${esc(p)}</option>`);
+  return mem.concat(loc).join("");
+}
+const isMemberId = v => /^[0-9a-f]{24}$/.test(v || "");
+const localName = v => (v || "").startsWith("p:") ? v.slice(2) : "";
+
+// Responsável de um cartão pra exibição: membro do Trello ou nome gravado na descrição
+function cardWho(c) {
+  const names = state.members.filter(m => c.idMembers?.includes(m.id)).map(m => m.fullName.split(" ")[0]);
+  if (names.length) return names.join(", ");
+  const m = (c.desc || "").match(/Responsável:\s*(.+)/);
+  return m ? m[1].trim() : "";
+}
+
 function whoName() {
-  const m = state.members.find(m => m.id === $("who").value);
+  const v = $("who").value;
+  if (localName(v)) return localName(v);
+  const m = state.members.find(m => m.id === v);
   return m ? m.fullName : "(não informado)";
 }
 const comment = (cardId, text) => api(`/cards/${cardId}/actions/comments`, { text }, "POST").catch(() => {});
@@ -383,10 +408,11 @@ async function cardAction(act, id, url) {
       const card = state.cards.find(c => c.id === id);
       const params = { due: dueRaw ? new Date(dueRaw).toISOString() : "null" };
       if (name) params.name = name;
-      if (who) params.idMembers = who;
+      if (isMemberId(who)) params.idMembers = who;
+      if (localName(who)) params.desc = `👤 Responsável: ${localName(who)}`;
       await api(`/cards/${id}`, params, "PUT");
-      // tirar o responsável: a API só remove membro por endpoint próprio
-      if (!who) for (const m of card?.idMembers || []) await api(`/cards/${id}/idMembers/${m}`, {}, "DELETE").catch(() => {});
+      // sem membro do Trello selecionado: a API só remove membro por endpoint próprio
+      if (!isMemberId(who)) for (const m of card?.idMembers || []) await api(`/cards/${id}/idMembers/${m}`, {}, "DELETE").catch(() => {});
       await comment(id, `✏ Editada por ${whoName()} (painel)`);
       state.editingCard = null;
     }
@@ -407,11 +433,17 @@ async function cardAction(act, id, url) {
   } catch (e) { $("status").textContent = "Não foi possível atualizar o cartão."; }
 }
 
-async function setWho(memberId) {
-  cfg.set("last_who", memberId);
+async function setWho(v) {
+  cfg.set("last_who", v);
   if (!state.shiftCard) return;
-  try { await api(`/cards/${state.shiftCard.id}`, { idMembers: memberId }, "PUT"); }
-  catch { $("status").textContent = "Não foi possível definir o responsável."; }
+  try {
+    if (isMemberId(v)) {
+      await api(`/cards/${state.shiftCard.id}`, { idMembers: v }, "PUT");
+    } else {
+      for (const m of state.shiftCard.idMembers || []) await api(`/cards/${state.shiftCard.id}/idMembers/${m}`, {}, "DELETE").catch(() => {});
+      if (localName(v)) await api(`/cards/${state.shiftCard.id}`, { desc: `👤 Responsável: ${localName(v)}` }, "PUT");
+    }
+  } catch { $("status").textContent = "Não foi possível definir o responsável."; }
 }
 
 async function createPending() {
@@ -419,7 +451,12 @@ async function createPending() {
   if (!name) return;
   const due = $("newDue").value ? new Date($("newDue").value).toISOString() : "";
   try {
-    const c = await api("/cards", { idList: state.lists.todo, name, pos: "top", due, idMembers: $("newWho").value }, "POST");
+    const w = $("newWho").value;
+    const c = await api("/cards", {
+      idList: state.lists.todo, name, pos: "top", due,
+      idMembers: isMemberId(w) ? w : "",
+      desc: localName(w) ? `👤 Responsável: ${localName(w)}` : ""
+    }, "POST");
     await comment(c.id, `🆕 Criada por ${whoName()} (painel)`);
     $("newName").value = ""; $("newDue").value = ""; $("newWho").value = "";
     $("addBox").classList.add("hidden");
@@ -462,7 +499,7 @@ function passText(header) {
   const pend = cfg.passPend ? state.cards.filter(c => c.id !== state.shiftCard?.id) : [];
   if (pend.length) {
     const list = pend.map(c => {
-      const who = state.members.filter(m => c.idMembers?.includes(m.id)).map(m => m.fullName.split(" ")[0]).join(", ");
+      const who = cardWho(c);
       const due = c.due ? new Date(c.due).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
       const od = c.due && !c.dueComplete && new Date(c.due) < new Date();
       return `- ${c.name}${who ? ` (${who})` : ""}${due ? ` — até ${due}` : ""}${od ? " ⚠ ATRASADA" : ""}`;
@@ -613,7 +650,7 @@ async function openReport() {
   try {
     const since = new Date(); since.setDate(since.getDate() - 31); since.setHours(0, 0, 0, 0);
     const [cards, actions] = await Promise.all([
-      api(`/boards/${cfg.board}/cards/all`, { fields: "name,idList,idMembers,due,dueComplete,closed,dateLastActivity", checklists: "all", checkItem_fields: "name,state" }),
+      api(`/boards/${cfg.board}/cards/all`, { fields: "name,desc,idList,idMembers,due,dueComplete,closed,dateLastActivity", checklists: "all", checkItem_fields: "name,state" }),
       fetchActions(since)
     ]);
     const memberName = id => (state.members.find(m => m.id === id) || {}).fullName || "";
@@ -636,7 +673,7 @@ async function openReport() {
         id: c.id, name: c.name, shift: isShift,
         created: created.toISOString(),
         createdBy: who("Criada por") || (acts.find(a => a.type === "createCard")?.memberCreator?.fullName ?? ""),
-        owner: (c.idMembers || []).map(memberName).filter(Boolean).join(", "),
+        owner: (c.idMembers || []).map(memberName).filter(Boolean).join(", ") || ((c.desc || "").match(/Responsável:\s*(.+)/)?.[1]?.trim() ?? ""),
         due: c.due || "", overdue: !!(c.due && !c.dueComplete && !done && new Date(c.due) < new Date()),
         done, doneAt: moveDone ? moveDone.date : (done && !isShift ? c.dateLastActivity || "" : ""),
         doneBy: who("Concluída por"),
@@ -779,7 +816,10 @@ setInterval(() => {
     const i = await window.desktop.appInfo();
     const d = i.releasedAt ? new Date(i.releasedAt).toLocaleDateString("pt-BR") : "";
     $("verLabel").textContent = `Painel do Turno v${i.version}${d ? ` · versão de ${d}` : ""}`;
+    if (i.updateReady) $("updateBtn").classList.remove("hidden");
   } catch {}
+  window.desktop.onUpdateReady?.(() => $("updateBtn").classList.remove("hidden"));
+  $("updateBtn").onclick = () => { $("updateBtn").textContent = "Atualizando..."; window.desktop.installUpdate().catch(() => {}); };
   await loadConfig();
   if (cfg.key && cfg.token && cfg.board) {
     try { state.boards = await api("/members/me/boards", { fields: "id,name,url", filter: "open" }); } catch {}
