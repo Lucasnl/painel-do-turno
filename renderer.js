@@ -48,6 +48,7 @@ const cfg = {
   get manual() { return store.manual_board || ""; },
   get template() { return store.template || DEFAULT_TEMPLATE; },
   get shifts() { return Array.isArray(store.shifts) && store.shifts.length ? store.shifts : DEFAULT_SHIFTS; },
+  get passPend() { return store.passagem_pendencias !== false; }, // padrão: incluir
   get passFields() {
     const f = (store.passagem_fields || "").split("\n").map(s => s.trim()).filter(Boolean);
     return f.length ? f : DEFAULT_PASSAGEM.split("\n"); // lista vazia/apagada → volta pro padrão
@@ -180,6 +181,7 @@ async function showSetup() {
   $("token").value = cfg.token;
   $("template").value = cfg.template;
   $("passFields").value = store.passagem_fields || DEFAULT_PASSAGEM;
+  $("passPend").checked = cfg.passPend;
   renderShiftsEditor();
   $("autostart").checked = await window.desktop.getAutostart();
   if (cfg.key && cfg.token) await connect();
@@ -192,6 +194,7 @@ async function saveSetup() {
   cfg.set("manual_board", $("manualBoard").value);
   cfg.set("template", $("template").value);
   cfg.set("passagem_fields", $("passFields").value);
+  cfg.set("passagem_pendencias", $("passPend").checked);
   $("passBox").classList.add("hidden"); $("passBox").innerHTML = ""; // remonta com os campos novos
   const sh = readShiftsEditor();
   if (!sh.length) { $("loginMsg").textContent = "Adicione pelo menos um turno."; return; }
@@ -455,8 +458,8 @@ function passText(header) {
     parts.push(el.tagName === "TEXTAREA" ? `${f}:\n${v}` : `${f}: ${v}`);
   });
   if (!parts.length) return "";
-  // pendências em aberto entram sempre, geradas na hora (snapshot do quadro)
-  const pend = state.cards.filter(c => c.id !== state.shiftCard?.id);
+  // pendências em aberto geradas na hora (snapshot do quadro) — desligável no ⚙
+  const pend = cfg.passPend ? state.cards.filter(c => c.id !== state.shiftCard?.id) : [];
   if (pend.length) {
     const list = pend.map(c => {
       const who = state.members.filter(m => c.idMembers?.includes(m.id)).map(m => m.fullName.split(" ")[0]).join(", ");
@@ -772,6 +775,11 @@ setInterval(() => {
 
 // ---------- início ----------
 (async () => {
+  try {
+    const i = await window.desktop.appInfo();
+    const d = i.releasedAt ? new Date(i.releasedAt).toLocaleDateString("pt-BR") : "";
+    $("verLabel").textContent = `Painel do Turno v${i.version}${d ? ` · versão de ${d}` : ""}`;
+  } catch {}
   await loadConfig();
   if (cfg.key && cfg.token && cfg.board) {
     try { state.boards = await api("/members/me/boards", { fields: "id,name,url", filter: "open" }); } catch {}

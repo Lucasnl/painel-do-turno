@@ -48,6 +48,7 @@
         <label>Campos da passagem de turno (um por linha)</label>
         <textarea id="passFields" rows="8"></textarea>
         <p class="hint">Campo começando com "Extra" vira caixa de texto grande.</p>
+        <label class="check"><input type="checkbox" id="passPend"> Incluir pendências em aberto automaticamente no texto da passagem</label>
 
         <label>Checklist de início de turno (um item por linha)</label>
         <textarea id="template" rows="10"></textarea>
@@ -101,6 +102,7 @@
       </div>
       <div id="status" class="status"></div>
     </section>
+    <div id="verLabel" class="version"></div>
   </main>
 </div>
 <script src="renderer.js"></script>

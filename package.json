@@ -1,6 +1,6 @@
 {
   "name": "trello-float",
-  "version": "2.6.2",
+  "version": "2.6.3",
   "description": "Painel flutuante do turno do hostel, sincronizado com o Trello",
   "author": "Hostel",
   "main": "main.js",
@@ -48,5 +48,6 @@
   },
   "dependencies": {
     "electron-updater": "^6.8.9"
-  }
+  },
+  "releasedAt": "2026-08-31T00:30:34.948Z"
 }

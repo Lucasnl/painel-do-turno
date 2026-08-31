@@ -168,6 +168,11 @@ ipcMain.handle("report:open", (_e, html) => {
   fs.writeFileSync(f, String(html), "utf8");
   return shell.openPath(f);
 });
+ipcMain.handle("app:info", () => {
+  let releasedAt = "";
+  try { releasedAt = require("./package.json").releasedAt || ""; } catch {}
+  return { version: app.getVersion(), releasedAt };
+});
 ipcMain.handle("autostart:get", () => app.getLoginItemSettings().openAtLogin);
 ipcMain.handle("autostart:set", (_e, on) => { app.setLoginItemSettings({ openAtLogin: !!on }); return !!on; });
 
